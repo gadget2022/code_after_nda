@@ -1,0 +1,229 @@
+ALTER   PROCEDURE [dbo].[GetWencoHaulCycles]
+
+--максимальное количество записей для загрузки при одном запуске D2A
+@Limit int = 1
+--дата и время начала загрузки, дата и время окончания первого рейса
+,@LoadingStartDateTime datetime = '2021-12-01 08:00'
+--название интеграции в логе загрузок [UDCGOK-MES03].[AmplaTemp].[dbo].[Integrations]
+,@IntegrationName nvarchar(1024)=N'GetWencoHaulCycles'
+
+AS
+BEGIN
+
+	declare @LastRowVersion varbinary(8) = isnull((SELECT [LastRowVer] FROM [MES03].[AmplaTemp].[dbo].[Integrations] where IntegrationName = @IntegrationName and Host=HOST_NAME()),0x0000000000000000)
+
+		DECLARE @new_hauls AS TABLE
+(
+	[HAUL_CYCLE_REC_IDENT] [numeric](9, 0) NULL,
+	[START_TIMESTAMP] [datetime] NULL,
+	[START_SHIFT_DATE] [datetime] NULL,
+	[START_SHIFT_IDENT] [varchar](MAX) NULL,
+	[LOAD_START_TIMESTAMP] [datetime] NULL,
+	[LOAD_START_SHIFT_DATE] [datetime] NULL,
+	[LOAD_START_SHIFT_IDENT] [varchar](MAX) NULL,
+	[DUMP_END_TIMESTAMP] [datetime] NULL,
+	[DUMP_END_SHIFT_DATE] [datetime] NULL,
+	[DUMP_END_SHIFT_IDENT] [varchar](MAX) NULL,
+	[HAULING_UNIT_IDENT] [varchar](MAX) NULL,
+	[LOADING_UNIT_IDENT] [varchar](MAX) NULL,
+	[LOAD_LOCATION_SNAME] [varchar](MAX) NULL,
+	[BLOCK_SNAME] [varchar](MAX) NULL,
+	[MATERIAL_IDENT] [varchar](MAX) NULL,
+	[LEASE_IDENT] [varchar](MAX) NULL,
+	[DUMP_LOCATION_SNAME] [varchar](MAX) NULL,
+	[EMPTY_DISTANCE] [numeric](12, 3) NULL,
+	[OEM_EMPTY_DISTANCE] [numeric](12, 3) NULL,
+	[EFH_EMPTY_DISTANCE] [numeric](12, 3) NULL,
+	[GPS_EMPTY_DISTANCE] [numeric](12, 3) NULL,
+	[HAUL_DISTANCE] [numeric](12, 3) NULL,
+	[OEM_HAUL_DISTANCE] [numeric](12, 3) NULL,
+	[EFH_HAUL_DISTANCE] [numeric](12, 3) NULL,
+	[GPS_HAUL_DISTANCE] [numeric](12, 3) NULL,
+	[HAULING_UNIT_PAYLOAD] [numeric](14, 4) NULL,
+	[LOADING_UNIT_PAYLOAD] [numeric](14, 4) NULL,
+	[SCALE_WEIGHT] [numeric](14, 4) NULL,
+	[QUANTITY_ORE] [numeric](14, 4) NULL,
+	[QUANTITY_WASTE] [numeric](14, 4) NULL,
+	[QUANTITY_REPORTING] [numeric](14, 4) NULL,
+	[QUANTITY_SOURCE] [varchar](MAX) NULL,
+	[UNADJUSTED_QUANTITY] [numeric](14, 4) NULL,
+	[HAULING_UNIT_BADGE_IDENT] [varchar](MAX) NULL,
+	[LOADING_UNIT_BADGE_IDENT] [varchar](MAX) NULL,
+	[COST_CODE] [varchar](MAX) NULL,
+	[EMPTY_DISPATCH] [varchar](MAX) NULL,
+	[FULL_DISPATCH] [varchar](MAX) NULL,
+	[ELEVATION_HAUL_POSITIVE] [numeric](15, 4) NULL,
+	[ELEVATION_HAUL_NEGATIVE] [numeric](15, 4) NULL,
+	[ELEVATION_EMPTY_POSITIVE] [numeric](15, 4) NULL,
+	[ELEVATION_EMPTY_NEGATIVE] [numeric](15, 4) NULL,
+	[SOURCE] [varchar](MAX) NULL,
+	[SHOVEL_LOADING_PATTERN] [varchar](MAX) NULL,
+	[PROPERTY_CODE] [varchar](MAX) NULL,
+	[ORIGINAL_SOURCE] [varchar](MAX) NULL,
+	[PAYLOAD_REPORTING] [numeric](14, 4) NULL,
+	[CheckSum] [int] NULL,
+	[LastModified] [datetime] NULL,
+	[Deleted] [tinyint] NULL,
+	[RowVersion] [bigint] NULL
+	);
+
+	INSERT INTO @new_hauls
+	select top(@Limit) [HAUL_CYCLE_REC_IDENT],[START_TIMESTAMP],[START_SHIFT_DATE],[START_SHIFT_IDENT],[LOAD_START_TIMESTAMP],
+	[LOAD_START_SHIFT_DATE],[LOAD_START_SHIFT_IDENT],[DUMP_END_TIMESTAMP],[DUMP_END_SHIFT_DATE],[DUMP_END_SHIFT_IDENT],
+	[HAULING_UNIT_IDENT],[LOADING_UNIT_IDENT],[LOAD_LOCATION_SNAME],[BLOCK_SNAME],[MATERIAL_IDENT],[LEASE_IDENT],
+	[DUMP_LOCATION_SNAME],[EMPTY_DISTANCE],[OEM_EMPTY_DISTANCE],[EFH_EMPTY_DISTANCE],[GPS_EMPTY_DISTANCE],[HAUL_DISTANCE],
+	[OEM_HAUL_DISTANCE],[EFH_HAUL_DISTANCE],[GPS_HAUL_DISTANCE],[HAULING_UNIT_PAYLOAD],[LOADING_UNIT_PAYLOAD],[SCALE_WEIGHT],
+	[QUANTITY_ORE],[QUANTITY_WASTE],[QUANTITY_REPORTING],[QUANTITY_SOURCE],[UNADJUSTED_QUANTITY],
+	[HAULING_UNIT_BADGE_IDENT],[LOADING_UNIT_BADGE_IDENT],[COST_CODE],[EMPTY_DISPATCH],[FULL_DISPATCH],[ELEVATION_HAUL_POSITIVE],
+	[ELEVATION_HAUL_NEGATIVE],[ELEVATION_EMPTY_POSITIVE],[ELEVATION_EMPTY_NEGATIVE],[SOURCE],[SHOVEL_LOADING_PATTERN],
+	[PROPERTY_CODE],[ORIGINAL_SOURCE],[PAYLOAD_REPORTING],[CheckSum],[LastModified],[Deleted]
+	,cast(hct.[RowVersion] as bigint) as [RowVersion]
+	from [Wenco].[dbo].[DAILY_HAUL_CYCLE_TRANS] as hct
+	join [UDCGOK-MES01].[Directory].[haul].[v_WorkAreaMovementWenco] as amp on (iif(amp.LoadLocationName_Wenco<>N'Любое место',amp.LoadLocationName_Wenco,hct.LOAD_LOCATION_SNAME)=hct.LOAD_LOCATION_SNAME 
+	and iif(amp.DumpLocationName_Wenco<>N'Любое место',amp.DumpLocationName_Wenco,hct.DUMP_LOCATION_SNAME)=hct.DUMP_LOCATION_SNAME and amp.IdMaterial_Wenco=hct.MATERIAL_IDENT)
+	join [AmplaConfig].[dbo].[v_WencoVolumeDensity] as wvd on (wvd.[LOCATION_SNAME]=hct.[LOAD_LOCATION_SNAME] and wvd.[Material]=hct.material_ident
+	and hct.DUMP_END_TIMESTAMP>=wvd.ActiveDateTime and hct.DUMP_END_TIMESTAMP<wvd.ExpireDateTime)
+	where Deleted=0 and [DUMP_END_TIMESTAMP] is not null
+	and [DUMP_END_TIMESTAMP]>=@LoadingStartDateTime
+	and [RowVersion]>@LastRowVersion
+	and MATERIAL_IDENT is not null
+	and QUANTITY_REPORTING is not null
+	and LOAD_LOCATION_SNAME is not null
+	and DUMP_LOCATION_SNAME is not null
+	and not(QUANTITY_REPORTING=0 and [HAULING_UNIT_PAYLOAD]<>0)
+	order by [RowVersion]
+
+	declare @data_on_new_hauls AS TABLE
+	(
+	[Deleted] [tinyint] NULL,
+	[AmplaDestinationEquipment] [nvarchar](MAX) NULL,
+	[DestinationLot] [nvarchar](MAX) NULL,
+	[DestinationLotGroup] [nvarchar](MAX) NULL,
+	[DestAmplaMaterial] [nvarchar](MAX) NULL,
+	[Location] [nvarchar](MAX) NULL,
+	[MovementDirection] [nvarchar](MAX) NULL,
+	[Quantity] [numeric](38, 11) NULL,
+	[SamplePeriod] [datetime] NULL,
+	[AmplaSourceEquipment] [nvarchar](MAX) NULL,
+	[SourceLot] [nvarchar](MAX) NULL,
+	[SourceLotGroup] [nvarchar](MAX) NULL,
+	[SourceAmplaMaterial] [nvarchar](MAX) NULL,
+	[MAT_DESC] [varchar](MAX) NULL,
+	[LOAD_LOCATION_SNAME] [varchar](MAX) NULL,
+	[DUMP_LOCATION_SNAME] [varchar](MAX) NULL,
+	[VOLUME_DENSITY] [numeric](28, 12) NULL,
+	[HAUL_DISTANCE] [numeric](12, 3) NULL,
+	[Hauls] [int] NULL,
+	[QUANTITY_REPORTING] [numeric](14, 4) NULL,
+	[WEIGHT_REPORTING] [numeric](38, 11) NULL,
+	[HAULING_UNIT_PAYLOAD] [numeric](14, 4) NULL,
+	[TURNOVER] [numeric](38, 6) NULL,
+	[START_TIMESTAMP] [datetime] NULL,
+	[LOAD_START_TIMESTAMP] [datetime] NULL,
+	[DUMP_END_TIMESTAMP] [datetime] NULL,
+	[WorkArea] [nvarchar](MAX) NULL,
+	[WorkAreaId] [int] NULL,
+	[LoaderIdent] [nvarchar](MAX) NULL,
+	[LoaderMark] [nvarchar](max) NULL,
+	[LoaderModel] [nvarchar](max) NULL,
+	[LoaderEQUNR] [nvarchar](MAX) NULL,
+	[LoaderTPLNR] [nvarchar](MAX) NULL,
+	[LOADING_UNIT_BADGE_IDENT] [varchar](MAX) NULL,
+	[LoadingFIO] [nvarchar](MAX) NULL,
+	[TruckIdent] [nvarchar](MAX) NULL,
+	[TruckMark] [nvarchar](max) NULL,
+	[TruckModel] [nvarchar](max) NULL,
+	[TruckEQUNR] [nvarchar](MAX) NULL,
+	[TruckTPLNR] [nvarchar](MAX) NULL,
+	[HAULING_UNIT_BADGE_IDENT] [varchar](MAX) NULL,
+	[HaulingFIO] [nvarchar](MAX) NULL,
+	[TruckGroup] [nvarchar](MAX) NULL,
+	[Payload] [nvarchar](max) NULL,
+	[TruckTypeWork] [nvarchar](MAX) NULL,
+	[Pipe] [nvarchar](MAX) NULL,
+	[Date] [datetime] NULL, --поменялся формат
+	[Смена] [varchar](MAX) NULL,
+	[Source] [nvarchar](MAX) NULL,
+	[HAUL_CYCLE_REC_IDENT] [numeric](9, 0) NULL,
+	[RowVersion] [bigint] NULL,
+	index ix_RV clustered (RowVersion)
+	);
+
+	select 
+	nhct.[Deleted]
+	,amp.[AmplaDestinationEquipment]-- as N'Destination Equipment'
+	,amp.[DestinationLot]-- as N'Destination Lot'
+	,amp.[DestinationLotGroup]-- as N'Destination Lot Group'
+	,amp.[AmplaMaterial] as DestAmplaMaterial-- as N'Destination Material'
+	,N'Material Movements.AdhocMaterialMovement' as [Location]
+	,case when amp.[AmplaSourceEquipment] is null then N'Input'
+	when amp.[AmplaDestinationEquipment] is null then N'Output'
+	else N'Internal'
+	end as MovementDirection
+	,Quantity=iif(Material_ident like 'O%',QUANTITY_REPORTING*wvd.[Volume_density],
+	[QUANTITY_REPORTING])
+	,[DUMP_END_TIMESTAMP] as SamplePeriod
+	,amp.[AmplaSourceEquipment] -- as N'Source Equipment'
+	,amp.[SourceLot]-- as N'Source Lot'
+	,amp.[SourceLotGroup]-- as N'Source Lot Group'
+	,amp.[AmplaMaterial] as SourceAmplaMaterial--N'Source Material'
+	,m.[MAT_DESC] --N'Горная масса'
+	,[LOAD_LOCATION_SNAME] --as N'Место погрузки'
+	,[DUMP_LOCATION_SNAME] --as N'Место разгрузки'
+	--,wvd.[VOLUME_DENSITY] --Объемный вес
+	--,[HAUL_DISTANCE]-- as N'Расстояние'
+	--,1 as Hauls--as N'Рейсы'
+	--,[QUANTITY_REPORTING]-- as N'Объем'
+	--,[WEIGHT_REPORTING]=QUANTITY_REPORTING*wvd.[Volume_density] --wvd.Volume_density Масса
+	--,[HAULING_UNIT_PAYLOAD]-- as N'Масса по СКЗ'
+	--,TURNOVER=QUANTITY_REPORTING*wvd.[Volume_density]*[HAUL_DISTANCE] --Грузооборот
+	--,[START_TIMESTAMP]-- as N'Время начала цикла'
+	--,[LOAD_START_TIMESTAMP]-- as N'Время погрузки'
+	--,[DUMP_END_TIMESTAMP]-- as N'Время разгрузки'
+	--,amp.[WorkArea]-- as N'Передел'
+	--,amp.[WorkAreaId]-- as N'Номер передела'
+	--,isnull(le.TIDNR,le.[Борт Wenco]) as LoaderIdent-- as N'Борт погрузчика'
+	--,le.Mark as LoaderMark--as N'Марка погрузчика'
+	--,le.Model as LoaderModel--as N'Модель погрузчика'
+	--,le.EQUNR as LoaderEQUNR--as N'Номер ЕО погрузчика'
+	--,le.TPLNR as LoaderTPLNR--as N'ТМ погрузчика'
+	--,[LOADING_UNIT_BADGE_IDENT]-- as N'Водитель погрузчика ID'
+	--,LoadingFIO=CONCAT(lb.LAST_NAME,N' ',lb.FIRST_NAME,iif(lb.MIDDLE_INITIAL is not null,CONCAT(N' ', lb.MIDDLE_INITIAL),N''))
+	--,isnull(he.TIDNR,he.[Борт Wenco]) TruckIdent--as N'Борт самосвала'
+	--,he.Mark as TruckMark--as N'Марка самосвала'
+	--,he.Model as TruckModel--as N'Модель самосвала'
+	--,he.EQUNR as TruckEQUNR--as N'Номер ЕО самосвала'
+	--,he.TPLNR as TruckTPLNR--as N'ТМ самосвала'
+	--,[HAULING_UNIT_BADGE_IDENT]
+	--,HaulingFIO=CONCAT(hb.LAST_NAME,N' ',hb.FIRST_NAME,iif(hb.MIDDLE_INITIAL is not null,CONCAT(N' ', hb.MIDDLE_INITIAL),N''))
+	--,he.[Группа самосвалов] as TruckGroup
+	--,he.Payload --as N'Грузоподъемность АС'
+ --   ,amp.[Тип работ ТТ] as TruckTypeWork
+	--,amp.[Трубка] as Pipe
+	,cast(format([DUMP_END_SHIFT_DATE],'dd.MM.yyyy') as nvarchar(100)) as ShiftDate--as N'Дата'
+	,case when [DUMP_END_SHIFT_IDENT] like '1' then N'Смена 1'
+	when [DUMP_END_SHIFT_IDENT] like'2' then N'Смена 2'
+	else '0'
+	end as ShiftId--as N'Смена'
+	--,N'Wenco' as [Source]--as N'Источник'
+	,[HAUL_CYCLE_REC_IDENT] --RecId
+	,nHCT.[RowVersion]
+
+	from @new_hauls as nhct 
+	join [UDCGOK-MES01].[Directory].[haul].[v_WorkAreaMovementWenco] as amp on (iif(amp.LoadLocationName_Wenco<>N'Любое место',amp.LoadLocationName_Wenco,nhct.LOAD_LOCATION_SNAME)=nhct.LOAD_LOCATION_SNAME 
+	and iif(amp.DumpLocationName_Wenco<>N'Любое место',amp.DumpLocationName_Wenco,nhct.DUMP_LOCATION_SNAME)=nhct.DUMP_LOCATION_SNAME and amp.IdMaterial_Wenco=nhct.MATERIAL_IDENT)
+	join [AmplaConfig].[dbo].[v_WencoVolumeDensity] as wvd on (wvd.[LOCATION_SNAME]=nhct.[LOAD_LOCATION_SNAME] and wvd.[Material]=nhct.material_ident
+	and nhct.DUMP_END_TIMESTAMP>=wvd.ActiveDateTime and nhct.DUMP_END_TIMESTAMP<wvd.ExpireDateTime)
+	left join [Wenco].[dbo].[MATERIAL] as m on m.[MAT_MATERIAL_IDENT]=nhct.Material_ident 
+	left join [Wenco].[dbo].[BADGE] as lb on lb.BADGE_IDENT=nhct.LOADING_UNIT_BADGE_IDENT 
+	left join [Wenco].[dbo].[BADGE] as hb on hb.BADGE_IDENT=nhct.HAULING_UNIT_BADGE_IDENT
+
+	left join [AmplaConfig].[dbo].[v_WencoEquipWithSAPinfo] as le on le.Eqiup_id_Wenco=nhct.LOADING_UNIT_IDENT
+	left join [AmplaConfig].[dbo].[v_WencoEquipWithSAPinfo] as he on he.Eqiup_id_Wenco=nhct.HAULING_UNIT_IDENT
+
+	-- Очистка временных таблиц
+	DELETE FROM @new_hauls;
+	DELETE FROM @data_on_new_hauls;
+
+
+END
